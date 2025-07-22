@@ -52,6 +52,9 @@ set(ALL_SRC
 )
 add_library(sioclient ${ALL_SRC})
 
+add_compile_options("$<$<CONFIG:RELEASE>:/Zi>")
+add_link_options("$<$<CONFIG:RELEASE>:/DEBUG>")
+
 if(USE_SUBMODULES)
     set(MODULE_INCLUDE_DIRS
         ${CMAKE_CURRENT_LIST_DIR}/lib/websocketpp
