@@ -40,6 +40,11 @@ add_definitions(
     -D_WEBSOCKETPP_CPP11_CHRONO_
 )
 
+if (MSVC) 
+    # To solve error C1128: number of sections exceeded object file format limit: compile with /bigobj
+    add_compile_options(/bigobj)
+endif()
+
 if (DISABLE_LOGGING)
     add_definitions(-DSIO_DISABLE_LOGGING)
 endif()

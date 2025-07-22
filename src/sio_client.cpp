@@ -12,13 +12,22 @@ using std::stringstream;
 
 namespace sio
 {
-    client::client() : m_impl(new client_impl({})) {}
+    client::client() : m_impl(new client_impl<client_type_no_tls>({})) {}
     
-    client::client(client_options const& options):
-        m_impl(new client_impl(options))
+    client::client(client_options const& options)
     {
+        if(!client_impl_base::is_tls(options.uri))
+        {
+            m_impl = new client_impl<client_type_no_tls>(options);
+        }
+#if SIO_TLS
+        else
+        {
+            m_impl = new client_impl<client_type_tls>(options);
+        }
+#endif
     }
-    
+
     client::~client()
     {
         delete m_impl;
@@ -72,6 +81,11 @@ namespace sio
     void client::set_proxy_basic_auth(const std::string& uri, const std::string& username, const std::string& password)
     {
         m_impl->set_proxy_basic_auth(uri, username, password);
+    }
+
+    void client::connect()
+    {
+        connect("");
     }
 
     void client::connect(const std::string& uri)

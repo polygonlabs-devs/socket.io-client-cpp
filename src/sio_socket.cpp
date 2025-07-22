@@ -108,7 +108,7 @@ namespace sio
     {
     public:
         
-        impl(client_impl *, std::string const&, message::ptr const&);
+        impl(client_impl_base *, std::string const&, message::ptr const&);
         ~impl();
         
         void on(std::string const& event_name,event_listener_aux const& func);
@@ -173,7 +173,7 @@ namespace sio
         
         static unsigned int s_global_event_id;
         
-        sio::client_impl *m_client;
+        sio::client_impl_base *m_client;
         
         bool m_connected;
         std::string m_nsp;
@@ -245,7 +245,7 @@ namespace sio
         m_error_listener = nullptr;
     }
     
-    socket::impl::impl(client_impl *client, std::string const& nsp, message::ptr const& auth):
+    socket::impl::impl(client_impl_base *client, std::string const& nsp, message::ptr const& auth):
         m_client(client),
         m_connected(false),
         m_nsp(nsp),
@@ -343,7 +343,7 @@ namespace sio
     void socket::impl::on_close()
     {
         NULL_GUARD(m_client);
-        sio::client_impl *client = m_client;
+        sio::client_impl_base *client = m_client;
         m_client = NULL;
 
         if(m_connection_timer)
@@ -434,7 +434,7 @@ namespace sio
 					message::list msglist(ptr->get_vector());
 					this->on_socketio_ack(p.get_pack_id(),msglist);
                 }
-				else
+                else
 				{
 					this->on_socketio_ack(p.get_pack_id(),message::list(ptr));
 				}
@@ -542,7 +542,7 @@ namespace sio
         return socket::event_listener();
     }
     
-    socket::socket(client_impl* client,std::string const& nsp,message::ptr const& auth):
+    socket::socket(client_impl_base* client,std::string const& nsp,message::ptr const& auth):
         m_impl(new impl(client,nsp,auth))
     {
     }

@@ -17,10 +17,20 @@ namespace asio {
 
 namespace sio
 {
-    class client_impl;
+    class client_impl_base;
 
     struct client_options {
         asio::io_context* io_context = nullptr;
+
+        /**
+         * @brief URI to connect after construction.
+         * @details If this is set, the constructor selects TLS or non-TLS as needed. If building
+         * the library without SIO_TLS support, you may only use http:// or ws:// schemes, or an
+         * exception is thrown. When using this constructor, you may later call connect() without
+         * passing the URI again. If you pass another URI later to connect() it must have the same
+         * scheme as the one given here, or an exception will be raised.
+         */
+        std::string uri;
     };
     
     class client {
@@ -38,9 +48,23 @@ namespace sio
         typedef std::function<void(unsigned, unsigned)> reconnect_listener;
         
         typedef std::function<void(std::string const& nsp)> socket_listener;
-        
+
+        /**
+         * @brief Default constructor.
+         * @details Build a TLS-only or a non-TLS client depending on which library you link with.
+         */
         client();
+
+        /**
+         * @brief Construct a new client object
+         * @details This version of the constructor is a convenience for building a client with 
+         * options from @ref client_options and the uri value set to @p uri.
+         * @param uri URI to connect after construction.
+         */
+        client(const std::string& uri) : client(client_options{nullptr, uri}) {}
+
         client(client_options const& options);
+
         ~client();
         
         //set listeners and event bindings.
@@ -63,6 +87,8 @@ namespace sio
         void clear_socket_listeners();
         
         // Client Functions - such as send, etc.
+        void connect();
+
         void connect(const std::string& uri);
 
         void connect(const std::string& uri, const message::ptr& auth);
@@ -107,7 +133,7 @@ namespace sio
         client(client const&){}
         void operator=(client const&){}
         
-        client_impl* m_impl;
+        client_impl_base* m_impl;
     };
     
 }

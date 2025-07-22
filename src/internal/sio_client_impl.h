@@ -15,19 +15,17 @@
 #if _DEBUG || DEBUG
 #if SIO_TLS
 #include <websocketpp/config/debug_asio.hpp>
-typedef websocketpp::config::debug_asio_tls client_config;
-#else
+typedef websocketpp::config::debug_asio_tls client_config_tls;
+#endif //SIO_TLS
 #include <websocketpp/config/debug_asio_no_tls.hpp>
 typedef websocketpp::config::debug_asio client_config;
-#endif //SIO_TLS
 #else
 #if SIO_TLS
 #include <websocketpp/config/asio_client.hpp>
-typedef websocketpp::config::asio_tls_client client_config;
-#else
+typedef websocketpp::config::asio_tls_client client_config_tls;
+#endif //SIO_TLS
 #include <websocketpp/config/asio_no_tls_client.hpp>
 typedef websocketpp::config::asio_client client_config;
-#endif //SIO_TLS
 #endif //DEBUG
 
 #if SIO_TLS
@@ -49,11 +47,13 @@ namespace sio
 {
     using namespace websocketpp;
     
-    typedef websocketpp::client<client_config> client_type;
-    
-    class client_impl {
-        
-    protected:
+    typedef websocketpp::client<client_config> client_type_no_tls;
+#if SIO_TLS
+    typedef websocketpp::client<client_config_tls> client_type_tls;
+#endif
+
+    class client_impl_base {
+    public:
         enum con_state
         {
             con_opening,
@@ -61,14 +61,74 @@ namespace sio
             con_closing,
             con_closed
         };
+
+        client_impl_base() {}
+        virtual ~client_impl_base() {}
+
+        // listeners and event bindings. (see SYNTHESIS_SETTER below)
+        virtual void set_open_listener(client::con_listener const&)=0;
+        virtual void set_fail_listener(client::con_listener const&)=0;
+        virtual void set_reconnect_listener(client::reconnect_listener const&)=0;
+        virtual void set_reconnecting_listener(client::con_listener const&)=0;
+        virtual void set_close_listener(client::close_listener const&)=0;
+        virtual void set_socket_open_listener(client::socket_listener const&)=0;
+        virtual void set_socket_close_listener(client::socket_listener const&)=0;
+        virtual void set_proxy_basic_auth(const std::string&, const std::string&, const std::string&) = 0;
+
+        // used by sio::client
+        virtual void set_logs_default() = 0;
+        virtual void set_logs_quiet() = 0;
+        virtual void set_logs_verbose() = 0;
         
-        client_impl(client_options const& options);
-        
+        virtual void clear_con_listeners()=0;
+        virtual void clear_socket_listeners()=0;
+        virtual void connect(const std::string& uri, const std::map<std::string, std::string>& queryString,
+                             const std::map<std::string, std::string>& httpExtraHeaders, const message::ptr& auth) = 0;
+        virtual sio::socket::ptr const& socket(const std::string& nsp)=0;
+        virtual void close()=0;
+        virtual void sync_close()=0;
+        virtual bool opened() const=0;
+        virtual std::string const& get_sessionid() const=0;
+        virtual void set_reconnect_attempts(unsigned attempts)=0;
+        virtual void set_reconnect_delay(unsigned millis)=0;
+        virtual void set_reconnect_delay_max(unsigned millis)=0;
+
+        // used by sio::socket
+        virtual void send(packet& p)=0;
+        virtual void remove_socket(std::string const& nsp)=0;
+        virtual asio::io_service& get_io_service()=0;
+        virtual void on_socket_closed(std::string const& nsp)=0;
+        virtual void on_socket_opened(std::string const& nsp)=0;
+
+        // used for selecting whether or not to use TLS
+        static bool is_tls(const std::string& uri);
+
+    protected:
+        // Wrap protected member functions of sio::socket because only client_impl_base is friended.
+        sio::socket* new_socket(std::string const&, const message::ptr& auth);
+        void socket_on_message_packet(sio::socket::ptr&, packet const&);
+        typedef void (sio::socket::*socket_void_fn)(void);
+        inline socket_void_fn socket_on_close() { return &sio::socket::on_close; }
+        inline socket_void_fn socket_on_disconnect() { return &sio::socket::on_disconnect; }
+        inline socket_void_fn socket_on_open() { return &sio::socket::on_open; }
+
+        // Percent encode query string
+        std::string encode_query_string(const std::string &query);
+    };
+
+    template<typename client_type>
+    class client_impl: public client_impl_base {
+    public:
+        typedef typename client_type::message_ptr message_ptr;
+
+        client_impl(const client_options& options);
+        void template_init(); // template-specific initialization
+
         ~client_impl();
         
         //set listeners and event bindings.
 #define SYNTHESIS_SETTER(__TYPE__,__FIELD__) \
-    void set_##__FIELD__(__TYPE__ const& l) \
+    void set_##__FIELD__(__TYPE__ const& l) override \
         { m_##__FIELD__ = l;}
         
         SYNTHESIS_SETTER(client::con_listener,open_listener)
@@ -84,11 +144,10 @@ namespace sio
         SYNTHESIS_SETTER(client::socket_listener,socket_open_listener)
         
         SYNTHESIS_SETTER(client::socket_listener,socket_close_listener)
-        
+
 #undef SYNTHESIS_SETTER
-        
-        
-        void clear_con_listeners()
+
+        void clear_con_listeners() override
         {
             m_open_listener = nullptr;
             m_close_listener = nullptr;
@@ -97,7 +156,7 @@ namespace sio
             m_reconnecting_listener = nullptr;
         }
         
-        void clear_socket_listeners()
+        void clear_socket_listeners() override
         {
             m_socket_open_listener = nullptr;
             m_socket_close_listener = nullptr;
@@ -105,43 +164,50 @@ namespace sio
         
         // Client Functions - such as send, etc.
         void connect(const std::string& uri, const std::map<std::string, std::string>& queryString,
-                     const std::map<std::string, std::string>& httpExtraHeaders, const message::ptr& auth);
+                     const std::map<std::string, std::string>& httpExtraHeaders, const message::ptr& auth) override;
         
-        sio::socket::ptr const& socket(const std::string& nsp);
+        sio::socket::ptr const& socket(const std::string& nsp) override;
         
         // Closes the connection
-        void close();
+        void close() override;
         
-        void sync_close();
+        void sync_close() override;
         
-        bool opened() const { return m_con_state == con_opened; }
+        bool opened() const override { return m_con_state == con_opened; }
         
-        std::string const& get_sessionid() const { return m_sid; }
+        std::string const& get_sessionid() const override { return m_sid; }
 
-        void set_reconnect_attempts(unsigned attempts) {m_reconn_attempts = attempts;}
+        void set_reconnect_attempts(unsigned attempts) override {m_reconn_attempts = attempts;}
 
-        void set_reconnect_delay(unsigned millis) {m_reconn_delay = millis;if(m_reconn_delay_max<millis) m_reconn_delay_max = millis;}
+        void set_reconnect_delay(unsigned millis) override {
+            m_reconn_delay = millis;
+            if(m_reconn_delay_max<millis) m_reconn_delay_max = millis;
+        }
 
-        void set_reconnect_delay_max(unsigned millis) {m_reconn_delay_max = millis;if(m_reconn_delay>millis) m_reconn_delay = millis;}
+        void set_reconnect_delay_max(unsigned millis) override {
+            m_reconn_delay_max = millis;
+            if(m_reconn_delay>millis) m_reconn_delay = millis;
+        }
+        
+    public:
 
-        void set_logs_default();
+        void set_logs_default() override;
 
-        void set_logs_quiet();
+        void set_logs_quiet() override;
 
-        void set_logs_verbose();
+        void set_logs_verbose() override;
 		
-        void set_proxy_basic_auth(const std::string& uri, const std::string& username, const std::string& password);
+        void set_proxy_basic_auth(const std::string& uri, const std::string& username, const std::string& password) override;
 
-    protected:
-        void send(packet& p);
+        void send(packet& p) override;
         
-        void remove_socket(std::string const& nsp);
+        void remove_socket(std::string const& nsp) override;
         
-        asio::io_service& get_io_service();
+        asio::io_service& get_io_service() override;
         
-        void on_socket_closed(std::string const& nsp);
+        void on_socket_closed(std::string const& nsp) override;
         
-        void on_socket_opened(std::string const& nsp);
+        void on_socket_opened(std::string const& nsp) override;
         
     private:
         void run_loop();
@@ -174,7 +240,7 @@ namespace sio
 
         void on_close(connection_hdl con);
 
-        void on_message(connection_hdl con, client_type::message_ptr msg);
+        void on_message(connection_hdl con, message_ptr msg);
 
         //socketio callbacks
         void on_handshake(message::ptr const& message);
@@ -193,9 +259,6 @@ namespace sio
         context_ptr on_tls_init(connection_hdl con);
         #endif
         
-        // Percent encode query string
-        std::string encode_query_string(const std::string &query);
-
         // Connection pointer for client functions.
         connection_hdl m_con;
         client_type m_client;
